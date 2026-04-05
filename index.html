@@ -16,6 +16,7 @@
             --input-bg: #fafafa;
             --radius: 15px;
             --text-gray: #666;
+            --placeholder: #bbb;
         }
 
         body {
@@ -72,11 +73,15 @@
             box-sizing: border-box;
             outline: none;
             resize: none;
+            /* iOS Style Prevention */
             -webkit-appearance: none;
             -webkit-text-fill-color: var(--main) !important;
             opacity: 1 !important;
         }
-        textarea::placeholder { color: #bbb; -webkit-text-fill-color: #bbb; }
+        textarea::placeholder { 
+            color: var(--placeholder); 
+            -webkit-text-fill-color: var(--placeholder) !important; 
+        }
 
         .clear-btn {
             position: absolute;
@@ -90,6 +95,7 @@
             cursor: pointer;
             padding: 5px;
             display: none;
+            z-index: 2;
         }
         .clear-btn.active { display: block; }
 
@@ -125,14 +131,29 @@
         .echo-list { text-align: left; margin-top: 20px; }
         .echo-item {
             margin-bottom: 12px;
-            padding: 10px 0;
+            padding: 10px 12px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.1s;
             border-bottom: 1px solid #f0f0f0;
         }
+        .echo-item:active { background: var(--input-bg); transform: scale(0.98); }
+        
         .echo-row { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 6px; }
-        .word-txt { font-size: 1.1rem; font-weight: 800; color: var(--main); }
+        .word-txt { font-size: 1.1rem; font-weight: 600; color: var(--main); }
+        .echo-item.top-rank .word-txt { font-weight: 800; font-size: 1.2rem; }
+        
         .word-count { font-size: 0.9rem; font-weight: 800; color: var(--text-gray); }
         .bar-bg { width: 100%; height: 6px; background: #f0f0f0; border-radius: 3px; overflow: hidden; }
         .bar-fill { height: 100%; background: var(--main); border-radius: 3px; transition: width 0.3s ease-out; }
+
+        /* Copy Toast */
+        #toast {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: var(--main); color: #fff;
+            padding: 12px 24px; border-radius: 20px; font-size: 0.9rem; font-weight: 700;
+            opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 1000;
+        }
 
         footer { margin-top: 60px; font-size: 12px; color: #777; line-height: 1.8; font-weight: 500; }
         footer a { color: inherit; text-decoration: underline; }
@@ -161,6 +182,8 @@
 </head>
 <body>
 
+<div id="toast">Copied!</div>
+
 <div class="container">
     <h1>Word Echo</h1>
     <p class="subtitle">Visualize the frequency of your vocabulary.</p>
@@ -177,7 +200,7 @@
     </div>
 
     <div class="input-group">
-        <textarea id="textInput" placeholder="Paste your text here..." oninput="echo()"></textarea>
+        <textarea id="textInput" placeholder="Paste your text here..." oninput="debounceEcho()"></textarea>
         <button class="clear-btn" id="clearBtn" onclick="clearAll()">×</button>
     </div>
 
@@ -213,15 +236,19 @@
 </div>
 
 <script>
+    let timer;
     const STOP_WORDS = new Set(['a', 'an', 'the', 'and', 'or', 'but', 'if', 'because', 'as', 'until', 'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'don', 'should', 'now', 'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she', 'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing']);
+
+    function debounceEcho() {
+        clearTimeout(timer);
+        timer = setTimeout(echo, 300);
+        document.getElementById('clearBtn').classList.toggle('active', document.getElementById('textInput').value.length > 0);
+    }
 
     function echo() {
         const text = document.getElementById('textInput').value;
         const ignoreCommon = document.getElementById('stopWordToggle').checked;
-        const clearBtn = document.getElementById('clearBtn');
         const echoList = document.getElementById('echoList');
-        
-        clearBtn.classList.toggle('active', text.length > 0);
 
         if (!text.trim()) {
             document.getElementById('totalCount').innerText = '0';
@@ -230,7 +257,7 @@
             return;
         }
 
-        // Clean and Split
+        // Tokenize
         const words = text.toLowerCase()
             .replace(/[.,/#!$%^&*;:{}=\-_`~()?"']/g, " ")
             .split(/\s+/)
@@ -255,10 +282,11 @@
 
         const maxFreq = sorted.length > 0 ? sorted[0][1] : 1;
 
-        echoList.innerHTML = sorted.map(([word, count]) => {
+        echoList.innerHTML = sorted.map(([word, count], index) => {
             const width = (count / maxFreq) * 100;
+            const isTop = index < 3 ? 'top-rank' : '';
             return `
-                <div class="echo-item">
+                <div class="echo-item ${isTop}" onclick="copyWord('${word}')">
                     <div class="echo-row">
                         <span class="word-txt">${word}</span>
                         <span class="word-count">${count}</span>
@@ -271,8 +299,18 @@
         }).join('');
     }
 
+    async function copyWord(word) {
+        try {
+            await navigator.clipboard.writeText(word);
+            const toast = document.getElementById('toast');
+            toast.style.opacity = '1';
+            setTimeout(() => toast.style.opacity = '0', 1200);
+        } catch (err) {}
+    }
+
     function clearAll() {
         document.getElementById('textInput').value = '';
+        document.getElementById('clearBtn').classList.remove('active');
         echo();
         document.getElementById('textInput').focus();
     }
